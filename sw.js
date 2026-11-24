@@ -1,7 +1,7 @@
 /* LEICHT Service Worker: entschlüsselt die Seiten und Bilder aus enc/ nach der Anmeldung.
    Ohne gültige Sitzung werden Seitenaufrufe zur Anmeldung umgeleitet. */
 const BASE = new URL('./', self.registration.scope).pathname;
-const OFFEN = new Set(['', 'index.html', 'sw.js', '404.html', 'schluessel.json', 'README.md']);
+const OFFEN = new Set(['', 'index.html', 'sw.js', '404.html', 'schluessel.json', 'README.md', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']);
 const TYP = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json', webp: 'image/webp',
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', svg: 'image/svg+xml', md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', glb: 'model/gltf-binary', exr: 'image/x-exr' };
 let sitz = null;
