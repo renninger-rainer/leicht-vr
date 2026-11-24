@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LEICHT Planungswerkzeuge · Anmelden</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#F3F3F1">
+<style>
+:root{--bg:#F3F3F1;--card:#FFFFFF;--ink:#1E1E1E;--mute:#6E6E68;--line:#D9D9D4;--on:#232323;--err:#9A2E1F}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:max(28px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
+.mark{max-width:420px;margin:0 auto;font-weight:700;letter-spacing:.32em;font-size:20px}
+.mark small{display:block;font-weight:500;letter-spacing:.02em;font-size:13.5px;color:var(--mute);margin-top:4px}
+.login{max-width:420px;width:100%;margin:7vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:18px}
+.login h1{font-size:22px;margin:0;font-weight:650}
+.login p{margin:0;color:var(--mute)}
+button{font:inherit;cursor:pointer}
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.role{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:18px 14px;text-align:left;display:flex;flex-direction:column;gap:2px;color:var(--ink)}
+.role b{font-size:17px}.role span{color:var(--mute);font-size:13px}
+.role[aria-pressed=true]{background:var(--on);color:#fff;border-color:var(--on)}.role[aria-pressed=true] span{color:#D6D6D2}
+form{display:flex;flex-direction:column;gap:10px}
+label{font-size:13px;color:var(--mute);font-weight:550}
+input{font:19px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);width:100%}
+input:focus-visible,button:focus-visible{outline:3px solid #BDBDB6;outline-offset:2px}
+.primary{background:var(--on);color:#fff;border:0;border-radius:10px;padding:13px;font-weight:600;font-size:15.5px}
+.primary:disabled{opacity:.6;cursor:default}
+.err{color:var(--err);font-size:13.5px;min-height:1.4em}
+.hint{font-size:12.5px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="mark">LEICHT<small>Planungswerkzeuge</small></div>
+<section class="login">
+  <div><h1>Anmelden</h1><p id="sub">Profil wählen.</p></div>
+  <div class="roles" role="group" aria-label="Profil">
+    <button class="role" data-rolle="admin" aria-pressed="false" type="button"><b>Admin</b><span>Passwort</span></button>
+    <button class="role" data-rolle="gast" aria-pressed="false" type="button"><b>Gast</b><span>Wochencode</span></button>
+  </div>
+  <form id="form" hidden autocomplete="off">
+    <label for="pw" id="pwlabel">Passwort</label>
+    <input type="password" id="pw" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+    <div class="err" id="err" role="alert"></div>
+    <button class="primary" id="go" type="submit">Anmelden</button>
+    <p class="hint" id="hint"></p>
+  </form>
+</section>
+<script>
+const $ = s => document.querySelector(s), BASE = location.pathname.replace(/[^/]*$/, '');
+const P = new URLSearchParams(location.search);
+let weiter = P.get('weiter'); if (!weiter || !/^\/[^/]/.test(weiter)) weiter = BASE + 'start/'; if (location.hash && !weiter.includes('#')) weiter += location.hash;
+const reg = 'serviceWorker' in navigator ? navigator.serviceWorker.register(BASE + 'sw.js', { scope: BASE }) : Promise.reject(new Error('Dieser Browser unterstützt keine Service Worker.'));
+const idb = () => new Promise((res, rej) => { const r = indexedDB.open('leicht', 1); r.onupgradeneeded = () => r.result.createObjectStore('k'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const idbDo = async (mode, fn) => { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('k', mode), st = t.objectStore('k'), q = fn(st); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); }); };
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+function woche(d) { const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const tag = (t.getDay() + 6) % 7; t.setDate(t.getDate() - tag + 3);
+  const j = t.getFullYear(), erst = new Date(j, 0, 4), w = 1 + Math.round(((t - erst) / 864e5 - 3 + ((erst.getDay() + 6) % 7)) / 7); return j + '-W' + String(w).padStart(2, '0'); }
+function wochenende(d) { const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); t.setDate(t.getDate() + (6 - (t.getDay() + 6) % 7)); t.setHours(23, 59, 59, 999); return t.getTime(); }
+const normCode = s => s.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/U/g, 'V').replace(/[^0-9A-Z]/g, '');
+async function oeffnen(blob, geheimnis, iter) {
+  const basis = await crypto.subtle.importKey('raw', new TextEncoder().encode(geheimnis), 'PBKDF2', false, ['deriveKey']);
+  const k = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(blob.salt), iterations: iter, hash: 'SHA-256' }, basis, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(blob.iv) }, k, b64(blob.ct));
+  return JSON.parse(new TextDecoder().decode(klar));
+}
+async function gueltig() {
+  try { const o = JSON.parse(localStorage.getItem('leicht-login') || 'null'); if (!o || o.bis < Date.now()) return false;
+    const s = await idbDo('readonly', st => st.get('sitzung')); return !!(s && s.bis > Date.now() && s.K); } catch (e) { return false; }
+}
+async function weiterGehen() { const r = await reg; await navigator.serviceWorker.ready; (r.active || navigator.serviceWorker.controller)?.postMessage('neu'); location.replace(weiter); }
+let rolle = null;
+document.querySelectorAll('.role').forEach(b => b.onclick = () => {
+  rolle = b.dataset.rolle; document.querySelectorAll('.role').forEach(x => x.setAttribute('aria-pressed', x === b));
+  $('#form').hidden = false; $('#err').textContent = ''; $('#pw').value = '';
+  $('#pwlabel').textContent = rolle === 'admin' ? 'Admin-Passwort' : 'Wochencode';
+  $('#pw').type = rolle === 'admin' ? 'password' : 'text'; $('#pw').placeholder = rolle === 'admin' ? '' : 'XXXXX-XXXXX';
+  $('#hint').textContent = rolle === 'gast' ? 'Den Wochencode bekommst du von LEICHT. Er gilt bis Sonntag, danach brauchst du einen neuen.' : 'Angemeldet bleibst du 30 Tage auf diesem Gerät.';
+  $('#pw').focus();
+});
+$('#form').onsubmit = async e => {
+  e.preventDefault(); if (!rolle) return; $('#go').disabled = true; $('#go').textContent = 'Prüfe …'; $('#err').textContent = '';
+  try {
+    const S = await (await fetch(BASE + 'schluessel.json', { cache: 'no-cache' })).json();
+    const jetzt = new Date(); let inhalt, bis;
+    if (rolle === 'admin') { inhalt = await oeffnen(S.admin, $('#pw').value.trim(), S.iter).catch(() => null); bis = Date.now() + 30 * 864e5; }
+    else {
+      const w = woche(jetzt), blob = S.gast[w];
+      if (!blob) throw new Error('Für diese Woche ist noch kein Gastzugang hinterlegt.');
+      inhalt = await oeffnen(blob, normCode($('#pw').value), S.iter).catch(() => null); bis = wochenende(jetzt);
+    }
+    if (!inhalt) throw new Error(rolle === 'admin' ? 'Passwort stimmt nicht.' : 'Wochencode stimmt nicht oder ist abgelaufen.');
+    const K = await crypto.subtle.importKey('raw', b64(inhalt.k), { name: 'AES-GCM' }, false, ['decrypt']);
+    await idbDo('readwrite', st => st.put({ K, rolle, bis, geheim: inhalt.s || null }, 'sitzung'));
+    localStorage.setItem('leicht-login', JSON.stringify({ rolle, bis }));
+    await weiterGehen();
+  } catch (err) { $('#err').textContent = err.message || String(err); $('#go').disabled = false; $('#go').textContent = 'Anmelden'; $('#pw').select(); }
+};
+(async () => {
+  if (P.get('neu')) { try { await idbDo('readwrite', st => st.delete('sitzung')); localStorage.removeItem('leicht-login'); } catch (e) { } $('#sub').textContent = 'Die Seite wurde aktualisiert. Bitte neu anmelden.'; }
+  else if (await gueltig()) weiterGehen().catch(() => { });
+  reg.catch(e => { $('#sub').textContent = e.message; });
+})();
+</script>
+</body>
+</html>
