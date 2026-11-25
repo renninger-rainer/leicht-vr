@@ -1,6 +1,7 @@
 /* LEICHT Service Worker: entschlüsselt die Seiten und Bilder aus enc/ nach der Anmeldung.
    Ohne gültige Sitzung werden Seitenaufrufe zur Anmeldung umgeleitet. */
 const BASE = new URL('./', self.registration.scope).pathname;
+const NUR_ADMIN = ['type-designer-3d/', 'planer/'];   // für Gäste im Aufbau, eigener Schlüssel nur für Admin
 const OFFEN = new Set(['', 'index.html', 'sw.js', '404.html', 'schluessel.json', 'README.md', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']);
 const TYP = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', json: 'application/json', webp: 'image/webp',
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', svg: 'image/svg+xml', md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', glb: 'model/gltf-binary', exr: 'image/x-exr' };
@@ -30,15 +31,21 @@ async function liefern(req, u, rel) {
     return new Response('Nicht angemeldet', { status: 403 });
   }
   let p = rel;
+  const nurAdmin = NUR_ADMIN.some(a => p.startsWith(a)), key = nurAdmin ? s.KA : s.K;
+  if (nurAdmin && !key) {
+    if (s.rolle === 'admin') return Response.redirect(BASE + '?neu=1&weiter=' + encodeURIComponent(u.pathname + u.search), 302);   // alte Sitzung ohne Bereichsschlüssel
+    if (req.mode === 'navigate') return Response.redirect(BASE + 'baustelle/?p=' + encodeURIComponent(p.split('/')[0]), 302);
+    return new Response('Im Aufbau', { status: 403 });
+  }
   if (p === '' || p.endsWith('/')) p += 'index.html';
   else if (!/\.[a-z0-9]+$/i.test(p)) return Response.redirect(u.pathname + '/' + u.search, 301);
   let r = await fetch(BASE + 'enc/' + p.split('/').map(encodeURIComponent).join('/'));
   if (!r.ok) return new Response('Nicht gefunden', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   let buf = await r.arrayBuffer(), klar;
-  try { klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, s.K, buf.slice(12)); }
+  try { klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12)); }
   catch (err) { // evtl. veraltete Datei im Zwischenspeicher: einmal frisch laden
     r = await fetch(BASE + 'enc/' + p.split('/').map(encodeURIComponent).join('/'), { cache: 'reload' }); buf = await r.arrayBuffer();
-    try { klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, s.K, buf.slice(12)); }
+    try { klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12)); }
     catch (e2) { if (req.mode === 'navigate') return Response.redirect(BASE + '?neu=1&weiter=' + encodeURIComponent(u.pathname + u.search), 302); return new Response('Schlüssel passt nicht', { status: 403 }); }
   }
   const ext = (p.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();

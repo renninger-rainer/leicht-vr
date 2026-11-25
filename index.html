@@ -99,7 +99,8 @@ $('#form').onsubmit = async e => {
     }
     if (!inhalt) throw new Error(rolle === 'admin' ? 'Passwort stimmt nicht.' : 'Wochencode stimmt nicht oder ist abgelaufen.');
     const K = await crypto.subtle.importKey('raw', b64(inhalt.k), { name: 'AES-GCM' }, false, ['decrypt']);
-    await idbDo('readwrite', st => st.put({ K, rolle, bis, geheim: inhalt.s || null }, 'sitzung'));
+    const KA = inhalt.ka ? await crypto.subtle.importKey('raw', b64(inhalt.ka), { name: 'AES-GCM' }, false, ['decrypt']) : null;   // nur Admin
+    await idbDo('readwrite', st => st.put({ K, KA, rolle, bis, geheim: inhalt.s || null }, 'sitzung'));
     localStorage.setItem('leicht-login', JSON.stringify({ rolle, bis }));
     await weiterGehen();
   } catch (err) { $('#err').textContent = err.message || String(err); $('#go').disabled = false; $('#go').textContent = 'Anmelden'; $('#pw').select(); }
